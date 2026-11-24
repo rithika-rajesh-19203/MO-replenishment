@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import {
-  Avatar, Inline, PageChrome, PageHeader, StatusBadge, Surface, Table, Text,
+  Avatar, Icon, Inline, PageChrome, PageHeader, StatusBadge, Surface, Table, Text,
 } from '@canon';
 import type { TableColumn, TableSort } from '@canon';
 import {
@@ -11,8 +11,9 @@ import { ORDER_KIND, ORDER_TONE, orderStatusLabel } from './shared';
 
 /**
  * PURCHASES → PURCHASE ORDERS, INVENTORY → TRANSFER ORDERS and MANUFACTURING →
- * MANUFACTURING ORDERS. The same list view three times — only the columns differ. Step 4 of the flow lands here: the
- * scheduler's drafts, with "Created By" saying where each came from.
+ * MANUFACTURING ORDERS. The same list view three times, in the Purchase Orders
+ * list's column order — only the columns differ. An order raised from a
+ * replenishment carries the replenishment glyph beside its status.
  */
 export interface OrderListProps {
   type: OrderType;
@@ -20,7 +21,18 @@ export interface OrderListProps {
 }
 
 const refs = (o: Order) => o.lines.map((l) => taskOf(l.taskId)?.number).filter(Boolean).join(', ') || '—';
-const createdBy = (o: Order) => (o.createdBy === 'scheduler' ? 'Replenishment scheduler' : o.lines.some((l) => l.taskId) ? 'Replenishment (manual)' : 'Manual');
+/** Raised from a replenishment task — the list marks it with the glyph beside the status. */
+const fromReplenishment = (o: Order) => o.lines.some((l) => l.taskId);
+/** Expected delivery (PO, TO) or completion (MO): a fixed lead time after the order date. */
+const LEAD_DAYS: Record<OrderType, number> = { po: 7, to: 3, mo: 5 };
+const expectedOn = (o: Order) => new Date(new Date(o.date).getTime() + LEAD_DAYS[o.type] * 86_400_000).toISOString();
+
+/** The Received / Billed / Produced dots: a tick once it has happened, a quiet dot until then. */
+function Done({ done, label }: { done: boolean; label: string }) {
+  return done
+    ? <Icon name="check-circle" size="sm" tone="success" label={label} />
+    : <Surface tone="pressed" pad={0} radius="full" border="default" className="size-3" />;
+}
 
 export function OrderList({ type, onOutside }: OrderListProps) {
   const S = useReplenishment();
@@ -47,14 +59,18 @@ export function OrderList({ type, onOutside }: OrderListProps) {
     });
   }, [S.orders, type, viewId, sort]);
 
+  //  The Purchase Orders list's columns, in its order, for all three types —
+  //  only the counterparty, the progress columns and the date's name differ.
+  const isMo = type === 'mo';
   const columns: TableColumn<Order>[] = [
     { id: 'date', header: 'Date', sortable: true, cell: (o) => <Text as="span">{fmtDay(o.date)}</Text> },
+    { id: 'loc', header: type === 'to' ? 'Destination' : 'Location', cell: (o) => <Text as="span">{locOf(o.locId)?.name}</Text> },
     {
       id: 'number', header: numberHeader, sortable: true,
       cell: (o) => <Text as="a" href={`#/orders/${o.id}`} tone="link" weight="medium">{o.number}</Text>,
     },
     { id: 'ref', header: 'Reference#', cell: (o) => <Text as="span" tone="secondary">{refs(o)}</Text> },
-    ...(type === 'mo' ? [
+    ...(isMo ? [
       { id: 'item', header: 'Item Name', cell: (o: Order) => <Text as="span">{itemOf(o.lines[0].itemId).name}</Text> },
       { id: 'bom', header: 'BOM', cell: (o: Order) => <Text as="span" tone="secondary">{bomOf(o.bomId)?.number ?? '—'}</Text> },
     ] : isPo ? [{
@@ -66,12 +82,26 @@ export function OrderList({ type, onOutside }: OrderListProps) {
         </Inline>
       ),
     }] : [{ id: 'source', header: 'Source Location', cell: (o: Order) => <Text as="span">{locOf(o.sourceLocationId ?? '')?.name}</Text> }]),
-    { id: 'status', header: 'Status', sortable: true, cell: (o) => <StatusBadge status={ORDER_TONE[o.status]}>{orderStatusLabel(o.type, o.status)}</StatusBadge> },
-    { id: 'loc', header: { po: 'Deliver To', to: 'Destination Location', mo: 'Location' }[type], cell: (o) => <Text as="span">{locOf(o.locId)?.name}</Text> },
-    isPo
-      ? { id: 'amount', header: 'Amount', align: 'end', sortable: true, cell: (o) => <Text as="span" weight="medium">{money(orderTotal(o))}</Text> }
-      : { id: 'qty', header: 'Quantity', align: 'end', cell: (o) => <Text as="span" weight="medium">{n2(o.lines.reduce((a, l) => a + l.qty, 0))}</Text> },
-    { id: 'by', header: 'Created By', cell: (o) => <Text as="span" tone="secondary">{createdBy(o)}</Text> },
+    {
+      id: 'status', header: 'Status', sortable: true,
+      cell: (o) => (
+        <Inline gap={4} align="center">
+          <StatusBadge status={ORDER_TONE[o.status]}>{orderStatusLabel(o.type, o.status)}</StatusBadge>
+          {fromReplenishment(o) ? <Icon name="refresh" size="md" tone="muted" tip="Replenishment" /> : null}
+        </Inline>
+      ),
+    },
+    {
+      id: 'received', header: isMo ? 'Produced' : 'Received',
+      cell: (o) => <Done done={o.status === 'received'} label={isMo ? 'Produced' : 'Received'} />,
+    },
+    ...(isPo ? [{ id: 'billed', header: 'Billed', cell: () => <Done done={false} label="Billed" /> }] : []),
+    ...(isPo ? [] : [{ id: 'qty', header: 'Quantity', align: 'end' as const, cell: (o: Order) => <Text as="span">{n2(o.lines.reduce((a, l) => a + l.qty, 0))}</Text> }]),
+    ...(type === 'to' ? [] : [{ id: 'amount', header: 'Amount', align: 'end' as const, sortable: true, cell: (o: Order) => <Text as="span" weight="medium">{money(orderTotal(o))}</Text> }]),
+    {
+      id: 'due', header: isMo ? 'Expected Completion' : 'Delivery Date',
+      cell: (o) => <Text as="span">{o.status === 'received' ? '—' : fmtDay(expectedOn(o))}</Text>,
+    },
   ];
 
   return (

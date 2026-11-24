@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { cn } from '../utils/cn';
 import { iconPaths, type IconName } from './paths';
 
@@ -61,6 +62,14 @@ export interface IconProps {
    * shipped broken, announced only as "button".
    */
   label?: string;
+  /**
+   * A short hover-and-focus tip — "Replenishment" beside a list row's status.
+   * For a glyph that MARKS something and has no label beside it. The tip is
+   * also its accessible name, so `label` can be omitted; the glyph becomes
+   * focusable so a keyboard can read it too, and Escape dismisses it
+   * (WCAG 1.4.13). Never on a control — a Button already carries its label.
+   */
+  tip?: string;
   className?: string;
 }
 
@@ -70,7 +79,46 @@ export interface IconProps {
  * Geometry lives in `paths.ts`; a name with no geometry yet renders a dashed
  * placeholder so the gap is visible in the canon instead of failing silently.
  */
-export function Icon({ name, size = 'md', tone = 'inherit', label, className }: IconProps) {
+export function Icon(props: IconProps) {
+  return props.tip ? <TippedIcon {...props} tip={props.tip} /> : <Glyph {...props} />;
+}
+
+/** The glyph in a focusable span, with a fixed tip to its right, vertically centred. */
+function TippedIcon({ tip, label, ...rest }: IconProps & { tip: string }) {
+  const [at, setAt] = useState<{ top: number; left: number } | null>(null);
+  const show = (el: HTMLElement) => {
+    const r = el.getBoundingClientRect();
+    setAt({ top: r.top + r.height / 2, left: r.right + 6 });
+  };
+  return (
+    <span
+      tabIndex={0}
+      className="inline-flex rounded-xs focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-2"
+      onPointerEnter={(e) => show(e.currentTarget)}
+      onPointerLeave={() => setAt(null)}
+      onFocus={(e) => show(e.currentTarget)}
+      onBlur={() => setAt(null)}
+      onKeyDown={(e) => { if (e.key === 'Escape' && at) { e.stopPropagation(); setAt(null); } }}
+    >
+      <Glyph {...rest} label={label ?? tip} />
+      {/* aria-hidden: the same text is already the glyph's accessible name. */}
+      {at ? (
+        <span
+          aria-hidden
+          className={cn(
+            'fixed z-100 -translate-y-1/2 px-5 py-3 rounded-md shadow-menu pointer-events-none whitespace-nowrap',
+            'bg-surface-inverse text-text-inverse text-body-sm font-medium',
+          )}
+          style={{ top: at.top, left: at.left }}
+        >
+          {tip}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+function Glyph({ name, size = 'md', tone = 'inherit', label, className }: IconProps) {
   const glyph = iconPaths[name];
   const a11y = label ? { role: 'img' as const, 'aria-label': label } : { 'aria-hidden': true };
 

@@ -181,7 +181,8 @@
           "warning",
           "danger"
         ],
-        "label": "string — accessible name. Omit for decorative; REQUIRED on an icon-only control."
+        "label": "string — accessible name. Omit for decorative; REQUIRED on an icon-only control.",
+        "tip": "string — a hover-and-focus tip for a glyph that MARKS something with no label beside it (a list row's Replenishment mark). Doubles as the accessible name; the glyph becomes focusable and Escape dismisses the tip. Never on a control."
       },
       "source": "md §1.7 — glyph authored at 16, slot is per-component (open item 13). 34 of 38 names await Figma export."
     },

@@ -242,3 +242,15 @@ export const Accessibility: Story = {
     </Stack>
   ),
 };
+
+/** `tip` — hover or Tab to the glyph. A list row's Replenishment mark, beside its status. */
+export const WithTip: Story = {
+  args: { name: 'refresh' },
+  render: () => (
+    <Inline gap={4} align="center">
+      <Text size="body">Draft</Text>
+      <Icon name="refresh" size="md" tone="muted" tip="Replenishment" />
+      <Text size="body-sm" tone="secondary">Hover or focus the glyph; Escape dismisses the tip.</Text>
+    </Inline>
+  ),
+};
